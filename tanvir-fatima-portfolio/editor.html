@@ -101,6 +101,12 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--gold);outline-of
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 code{background:var(--ivory2);padding:1px 5px;border-radius:4px;font-size:.88em}
 details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
+.gate{position:fixed;inset:0;z-index:70;background:var(--navy);display:flex;align-items:center;justify-content:center;padding:16px}
+.gate-card{background:#fff;border-radius:16px;max-width:420px;width:100%;padding:28px 26px 22px;box-shadow:0 24px 60px rgba(0,0,0,.35);border-top:4px solid var(--gold)}
+.gate-card h1{font-family:var(--serif);color:var(--navy);margin:0 0 4px;font-size:1.6rem}
+.gate-card p{color:var(--ink5);margin:0 0 18px}
+.gate-card .gate-err{color:var(--red);font-size:.9rem;min-height:1.4em;margin:10px 0 0}
+.gate-card .btn{width:100%;justify-content:center;margin-top:14px;padding:11px 14px;font-size:1rem}
 @media (max-width:860px){
   .layout{grid-template-columns:1fr;padding:14px 16px 90px;gap:14px}
   .tabs{position:sticky;top:0;flex-direction:row;overflow-x:auto;gap:4px;padding:8px 0;background:var(--ivory);z-index:10;margin:0 -16px;padding-left:16px;padding-right:16px}
@@ -180,6 +186,9 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
   try { Object.assign(cfg, JSON.parse(LS.get('siteEditor.cfg') || '{}')); } catch (e) {}
   var token = SS.get('siteEditor.token') || LS.get('siteEditor.token') || '';
   var CV_PATH = 'assets/cv/Dr-Tanvir-Fatima-Naik-Bukht-CV.pdf';
+  var MAX_UPLOAD = 3e6;   // bytes per photo/CV when publishing through the website's password sign-in
+  var server = null;      // { configured, loggedIn } when the site offers password sign-in (Vercel)
+  function useServer() { return !!(server && server.configured); }
 
   var FILES = [
     { key: 'profile', path: 'data/profile.js', vars: ['PROFILE'] },
@@ -704,6 +713,7 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
       g.appendChild(pick);
       pin.addEventListener('change', function () {
         var file = pin.files[0]; if (!file) return;
+        if (tooBig(file)) { pin.value = ''; return; }
         readFile(file, function (b64) {
           var ext = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/webp' ? 'webp' : 'png';
           var path = 'assets/images/profile-photo.' + ext;
@@ -743,6 +753,7 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
       c.appendChild(cp);
       cin.addEventListener('change', function () {
         var file = cin.files[0]; if (!file) return;
+        if (tooBig(file)) { cin.value = ''; return; }
         if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') { toast('Please choose a PDF file.', 'error'); cin.value = ''; return; }
         readFile(file, function (b64) { assets[CV_PATH] = { kind: 'cv', b64: b64, name: file.name, label: 'CV (' + file.name + ')' }; show('files', true); });
       });
@@ -754,7 +765,9 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
     },
 
     publish: function () {
+      if (useServer()) { renderServerSetup(); return; }
       head('Publishing setup', 'Connect the editor to GitHub once. After that, “Publish” updates the live website in about a minute.');
+      if (server && !server.configured) serverHowTo();
       var sg = group('Status');
       var line = h('div', 'field');
       var st = h('div', 'status-line');
@@ -832,6 +845,88 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
     }
   };
 
+  function tooBig(file) {
+    if (!useServer() || file.size <= MAX_UPLOAD) return false;
+    toast('That file is ' + (file.size / 1e6).toFixed(1) + ' MB. Files published through the website must be under 3 MB, so please make it smaller first (for photos, tinypng.com works well).', 'error');
+    return true;
+  }
+
+  function renderServerSetup() {
+    head('Publishing setup', 'You sign in with the editor password, so you can edit from any computer or phone.');
+    var sg = group('Status');
+    var line = h('div', 'field'), st = h('div', 'status-line');
+    st.appendChild(h('strong', null, connected ? 'Signed in' : 'Signed in, loading content…'));
+    st.appendChild(h('span', 'hint', 'Publishing to github.com/' + cfg.owner + '/' + cfg.repo + ' (' + cfg.branch + ')'));
+    line.appendChild(st); sg.appendChild(line);
+    var r = h('div', 'field'), rr = h('div', 'row');
+    var reload = h('button', 'btn ghost small', 'Reload content from GitHub'); reload.type = 'button';
+    reload.addEventListener('click', function () {
+      if (changeCount()) { toast('Publish or discard your changes first, so nothing is lost.', 'error'); return; }
+      connect(false);
+    });
+    var out = h('button', 'btn danger small', 'Sign out'); out.type = 'button';
+    armButton(out, 'Confirm sign out', signOut);
+    rr.appendChild(reload); rr.appendChild(out); r.appendChild(rr); sg.appendChild(r);
+    var ag = group('Good to know');
+    ag.appendChild(h('div', 'note field', 'To change the editor password: on Vercel open the project, go to Settings → Environment Variables, edit EDITOR_PASSWORD, then redeploy. Everyone is signed out when it changes. If publishing ever says the GitHub token has expired, create a new token and replace GITHUB_TOKEN in the same place.'));
+    ag.appendChild(h('div', 'note field', 'This editor changes the content: text, lists, links, photo and CV. The design, layout, colours and the fixed section headings stay as they are. A copy of every published version is kept in the GitHub history, so any change can be rolled back.'));
+  }
+
+  function serverHowTo() {
+    var g = group('Recommended: sign in with a password from any computer');
+    var d = h('div', 'field');
+    d.appendChild(h('p', 'hint', 'Set this up once and you can edit from any laptop with just a password. The GitHub token is pasted once into Vercel instead of into every browser.' + (server && server.reason ? ' (Status: ' + server.reason + ')' : '')));
+    var ol = h('ol', 'steps');
+    ['Create the GitHub token with steps 1–5 in the next box, and copy it.',
+     'On vercel.com open the project “' + cfg.repo + '” → Settings → Environment Variables.',
+     'Add a variable named GITHUB_TOKEN and paste the token as its value.',
+     'Add a variable named EDITOR_PASSWORD with a password you choose (at least 10 characters).',
+     'Open Deployments, click “…” on the latest deployment and choose Redeploy. When it finishes, reload this page.'
+    ].forEach(function (s) { ol.appendChild(h('li', null, s)); });
+    d.appendChild(ol); g.appendChild(d);
+  }
+
+  function showGate(msg) {
+    if (document.getElementById('gate')) return;
+    setConn('Signed out');
+    var gate = h('div', 'gate'); gate.id = 'gate';
+    var card = h('form', 'gate-card'); card.noValidate = true;
+    card.appendChild(h('h1', null, 'Site Editor'));
+    card.appendChild(h('p', null, 'Sign in to edit ' + ((data.PROFILE && data.PROFILE.fullName) || 'the website') + '.'));
+    var un = h('input'); un.type = 'text'; un.name = 'username'; un.autocomplete = 'username'; un.value = 'site-editor'; un.hidden = true;
+    card.appendChild(un);
+    var f = h('div', 'field');
+    var l = h('label', 'flabel', 'Editor password'); l.htmlFor = 'gatePw';
+    var pw = h('input'); pw.type = 'password'; pw.id = 'gatePw'; pw.name = 'password'; pw.autocomplete = 'current-password';
+    f.appendChild(l); f.appendChild(pw); card.appendChild(f);
+    var rf = h('div', 'field check'); rf.style.paddingTop = '12px';
+    var rem = h('input'); rem.type = 'checkbox'; rem.id = 'gateRem'; rem.checked = true;
+    var rl = h('label', 'flabel', 'Keep me signed in on this device for 30 days'); rl.htmlFor = 'gateRem';
+    rf.appendChild(rem); rf.appendChild(rl); card.appendChild(rf);
+    var btn = h('button', 'btn primary', 'Sign in'); btn.type = 'submit'; card.appendChild(btn);
+    var err = h('p', 'gate-err', msg || ''); err.setAttribute('role', 'alert'); card.appendChild(err);
+    card.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!pw.value) { err.textContent = 'Enter the password.'; pw.focus(); return; }
+      btn.disabled = true; btn.textContent = 'Signing in…'; err.textContent = '';
+      fetch('/api/login', { method: 'POST', headers: { 'X-Editor': '1', 'Content-Type': 'application/json' }, credentials: 'same-origin', cache: 'no-store', body: JSON.stringify({ password: pw.value, remember: rem.checked }) })
+        .then(function (r) {
+          if (r.ok) { server.loggedIn = true; gate.remove(); connect(false); return; }
+          err.textContent = r.status === 401 ? 'That password isn’t right. Please try again.' : r.status === 429 ? 'Too many attempts. Wait a few minutes and try again.' : 'Could not sign in (error ' + r.status + ').';
+          pw.select();
+        }, function () { err.textContent = 'Could not reach the website. Check the internet connection.'; })
+        .then(function () { btn.disabled = false; btn.textContent = 'Sign in'; });
+    });
+    gate.appendChild(card); document.body.appendChild(gate);
+    setTimeout(function () { pw.focus(); }, 50);
+  }
+
+  function signOut() {
+    fetch('/api/login', { method: 'DELETE', headers: { 'X-Editor': '1' }, credentials: 'same-origin' })
+      .catch(function () {})
+      .then(function () { server.loggedIn = false; connected = false; drawTabs(); showGate(); });
+  }
+
   function readFile(file, cb) {
     var r = new FileReader();
     r.onload = function () { cb(b64FromBytes(new Uint8Array(r.result))); };
@@ -843,9 +938,11 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
   function repoPath() { return '/repos/' + encodeURIComponent(cfg.owner) + '/' + encodeURIComponent(cfg.repo); }
   function contentsPath(p) { return repoPath() + '/contents/' + p.split('/').map(encodeURIComponent).join('/') + '?ref=' + encodeURIComponent(cfg.branch); }
   function gh(method, path, body) {
-    var headers = { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+    var headers = { 'Accept': 'application/vnd.github+json' }, url;
+    if (useServer()) { url = '/api/gh?p=' + encodeURIComponent(path); headers['X-Editor'] = '1'; }
+    else { url = 'https://api.github.com' + path; headers['Authorization'] = 'Bearer ' + token; headers['X-GitHub-Api-Version'] = '2022-11-28'; }
     if (body) headers['Content-Type'] = 'application/json';
-    return fetch('https://api.github.com' + path, { method: method, headers: headers, cache: 'no-store', body: body ? JSON.stringify(body) : undefined })
+    return fetch(url, { method: method, headers: headers, cache: 'no-store', credentials: 'same-origin', body: body ? JSON.stringify(body) : undefined })
       .then(function (res) {
         return res.text().then(function (txt) {
           var json = null; try { json = txt ? JSON.parse(txt) : null; } catch (e) {}
@@ -856,6 +953,9 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
   }
   function errMsg(e) {
     if (e && e.conflict) return e.message;
+    if (e && e.status === 401 && useServer()) { server.loggedIn = false; connected = false; setTimeout(function () { showGate('Your sign-in has expired. Please sign in again.'); }, 0); return 'Your sign-in has expired. Please sign in again.'; }
+    if (e && e.status === 413) return 'That file is too large to upload through the website. Please use a file under 3 MB.';
+    if (e && (e.status === 502 || e.status === 503) && useServer()) return e.message;
     if (e && e.status === 401) return 'GitHub did not accept the token. It may be mistyped, expired or revoked. Create a new one in Publishing setup.';
     if (e && e.status === 403) return 'The token isn’t allowed to change this repository. Check that “Contents” is set to “Read and write”. (' + e.message + ')';
     if (e && e.status === 404) return 'Repository or file not found. Make sure the token has access to ' + cfg.owner + '/' + cfg.repo + ', and check Publishing setup → Advanced.';
@@ -866,7 +966,7 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
 
   var connecting = false;
   function connect(silent) {
-    if (!token || connecting) return Promise.resolve();
+    if ((!useServer() && !token) || connecting) return Promise.resolve();
     connecting = true;
     setConn('Connecting…', 'busy');
     var drifted = [];
@@ -1024,7 +1124,15 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
   };
 
   show(current);
-  if (token) connect(true);
+  fetch('/api/login', { headers: { 'X-Editor': '1' }, credentials: 'same-origin', cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .catch(function () { return null; })
+    .then(function (s) {
+      if (s && typeof s.configured === 'boolean') server = s;
+      if (useServer()) { if (server.loggedIn) connect(true); else showGate(); }
+      else if (token) connect(true);
+      if (current === 'publish') show('publish', true); else drawTabs();
+    });
 })();
 </script>
 </body>
