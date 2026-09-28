@@ -1,11 +1,14 @@
 /**
- * awards.js
- * -----------------------------------------------------------------------
- * Awards, honors and academic achievements. No specific named awards
- * could be verified from public sources at the time this site was
- * built. Left empty rather than inventing entries — add verified
- * awards here as they become available. See README.md.
- * -----------------------------------------------------------------------
+ * awards.js — website content.
+ * Managed with the site editor (editor.html). Editing by hand is fine too:
+ * keep each "const NAME = ...;" line and the quotes, commas and brackets intact.
  */
 
-const AWARDS = [];
+const AWARDS = [
+  {
+    "title": "QEC",
+    "organization": "VC ",
+    "year": "2026",
+    "description": ""
+  }
+];
