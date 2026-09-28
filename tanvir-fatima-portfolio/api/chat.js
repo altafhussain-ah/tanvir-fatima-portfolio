@@ -5,7 +5,7 @@
  * Optional. Add ONE of these Vercel environment variables and redeploy:
  *   GEMINI_API_KEY     – Google AI Studio key (has a free tier)
  *   ANTHROPIC_API_KEY  – Anthropic (Claude) API key
- * Optional: CHAT_MODEL to choose a different model.
+ * Optional: CHAT_MODEL to choose a specific model (Gemini picks its latest model automatically).
  * Without a key the chat still works, using its built-in answers.
  */
 const fs = require('fs');
@@ -113,21 +113,38 @@ async function askClaude(system, messages) {
   if (!r.ok) throw new Error((j.error && j.error.message) || 'Anthropic ' + r.status);
   return (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
 }
+// Google retires model versions over time, so try the auto-updating alias first,
+// remember whichever model works, and move on if one is no longer available.
+let geminiModel = null;
 async function askGemini(system, messages) {
-  const model = process.env.CHAT_MODEL || 'gemini-2.5-flash';
-  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-    method: 'POST',
-    headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-      generationConfig: Object.assign({ maxOutputTokens: 700, temperature: 0.3 }, /2\.5-flash/.test(model) ? { thinkingConfig: { thinkingBudget: 0 } } : {})
-    })
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((j.error && j.error.message) || 'Gemini ' + r.status);
-  const c = (j.candidates || [])[0];
-  return ((c && c.content && c.content.parts) || []).map(p => p.text || '').join('');
+  const models = [...new Set([geminiModel, process.env.CHAT_MODEL, 'gemini-flash-latest', 'gemini-3.8-flash', 'gemini-flash-lite-latest'].filter(Boolean))];
+  let lastErr = new Error('No Gemini model available');
+  for (const model of models) {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'POST',
+      headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        generationConfig: { maxOutputTokens: 2048, temperature: 0.3 }
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) {
+      const c = (j.candidates || [])[0];
+      const text = ((c && c.content && c.content.parts) || []).filter(p => !p.thought).map(p => p.text || '').join('');
+      if (text.trim()) { geminiModel = model; return text; }
+      lastErr = new Error('Empty reply from ' + model);
+      continue;
+    }
+    lastErr = new Error((j.error && j.error.message) || 'Gemini ' + r.status);
+    if (r.status === 404 || (r.status === 400 && /model|not (found|available|supported)|no longer/i.test(lastErr.message))) {
+      if (geminiModel === model) geminiModel = null;
+      continue;
+    }
+    throw lastErr;
+  }
+  throw lastErr;
 }
 
 // Simple abuse protection (per server instance).
