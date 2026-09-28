@@ -142,6 +142,7 @@ async function askGemini(system, messages) {
       if (geminiModel === model) geminiModel = null;
       continue;
     }
+    if (r.status === 429 || r.status >= 500) continue; // busy or over quota: try the next model
     throw lastErr;
   }
   throw lastErr;
