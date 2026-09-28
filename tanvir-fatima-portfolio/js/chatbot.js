@@ -294,6 +294,7 @@
       return pre + '\u0000' + (links.length - 1) + '\u0000' + (trail ? trail[0] : '');
     });
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*\w])\*(?!\s)([^*\n]+?)\*(?!\w)/g, '$1<em>$2</em>');
     var html = '', listType = null, para = [];
     function flushPara() { if (para.length) { html += '<p>' + para.join('<br>') + '</p>'; para = []; } }
     function closeList() { if (listType) { html += '</' + listType + '>'; listType = null; } }
