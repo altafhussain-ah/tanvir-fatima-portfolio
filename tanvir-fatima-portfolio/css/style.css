@@ -917,3 +917,61 @@ section { padding: 96px 0; }
   .pub-toolbar { flex-direction: column; align-items: stretch; }
   .pub-search { min-width: 0; }
 }
+
+/* ---------- Pictures on award & certification cards ---------- */
+.card-media {
+  position: relative; display: block; width: 100%;
+  margin: 0 0 16px; padding: 0; border: 0;
+  border-radius: var(--radius-md); overflow: hidden;
+  aspect-ratio: 4 / 3; background: var(--color-ivory-100);
+  cursor: zoom-in;
+}
+.card-media img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform var(--transition-med); }
+.card-media:hover img { transform: scale(1.04); }
+.card-media:focus-visible { outline: 3px solid var(--color-gold-500); outline-offset: 2px; }
+.card-media-count {
+  position: absolute; right: 8px; bottom: 8px;
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(7, 28, 46, 0.85); color: #fff;
+  font-size: 0.76rem; font-weight: 600;
+}
+.cert-card.has-media > div:last-child { flex: 1; min-width: 0; }
+.cert-card .card-media { order: 3; flex: 0 0 88px; width: 88px; margin: 0; border: 1px solid var(--color-border); border-radius: 8px; }
+.cert-card .card-media-count { right: 4px; bottom: 4px; padding: 1px 6px; font-size: 0.66rem; }
+#awardsGrid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+#awardsGrid > .info-panel { grid-column: 1 / -1; }
+.research-card p.award-meta { color: var(--color-gold-600); font-weight: 600; font-size: 0.88rem; margin-bottom: 10px; text-align: left; }
+
+html.lightbox-open { overflow: hidden; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 3000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 56px 76px; background: rgba(7, 28, 46, 0.94);
+}
+.lightbox[hidden] { display: none; }
+.lightbox-figure { margin: 0; max-width: 100%; max-height: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.lightbox-img {
+  max-width: min(1200px, 100%); max-height: calc(100vh - 150px);
+  object-fit: contain; border-radius: 6px; background: #fff;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.lightbox-caption { color: var(--color-ivory-100); font-size: 0.95rem; text-align: center; max-width: 800px; }
+.lightbox-btn {
+  position: absolute; width: 48px; height: 48px;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%; cursor: pointer;
+  background: rgba(255, 255, 255, 0.14); color: #fff;
+}
+.lightbox-btn:hover { background: rgba(255, 255, 255, 0.26); }
+.lightbox-btn:focus-visible { outline: 3px solid var(--color-gold-500); outline-offset: 2px; }
+.lightbox-btn[hidden] { display: none; }
+.lightbox-close { top: 16px; right: 16px; }
+.lightbox-prev { left: 16px; top: 50%; transform: translateY(-50%); }
+.lightbox-next { right: 16px; top: 50%; transform: translateY(-50%); }
+@media (max-width: 600px) {
+  .lightbox { padding: 64px 12px 84px; }
+  .lightbox-prev, .lightbox-next { top: auto; bottom: 18px; transform: none; }
+  .lightbox-prev { left: calc(50% - 64px); }
+  .lightbox-next { right: calc(50% - 64px); }
+}
+@media print { .card-media { display: none; } }
