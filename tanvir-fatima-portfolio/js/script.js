@@ -343,6 +343,107 @@
 
   var CERT_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M9 14.5 7 22l5-3 5 3-2-7.5"/></svg>';
 
+  /* ---- Pictures on award & certification cards, with a full-screen viewer ---- */
+  function pictureList(item) {
+    return (Array.isArray(item.images) ? item.images : []).filter(function (src) { return typeof src === "string" && src.trim(); });
+  }
+  function addCardMedia(card, item, caption) {
+    var pics = pictureList(item);
+    if (!pics.length) return;
+    card.classList.add("has-media");
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "card-media";
+    btn.setAttribute("aria-label", "View " + (pics.length > 1 ? pics.length + " pictures" : "picture") + ": " + caption);
+    var img = document.createElement("img");
+    img.src = pics[0]; img.alt = ""; img.loading = "lazy"; img.decoding = "async";
+    btn.appendChild(img);
+    if (pics.length > 1) {
+      var count = document.createElement("span");
+      count.className = "card-media-count";
+      count.textContent = pics.length + " pictures";
+      btn.appendChild(count);
+    }
+    btn.addEventListener("click", function () { openLightbox(pics, caption, btn); });
+    card.insertBefore(btn, card.firstChild);
+  }
+
+  var lightbox = null;
+  function openLightbox(pics, caption, opener) {
+    if (!lightbox) lightbox = buildLightbox();
+    lightbox.show(pics, caption, opener);
+  }
+  function buildLightbox() {
+    var ARROW = function (d) { return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>'; };
+    var root = el("div", "lightbox");
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-label", "Picture viewer");
+    root.hidden = true;
+    var fig = el("figure", "lightbox-figure");
+    var img = document.createElement("img");
+    img.className = "lightbox-img";
+    var cap = document.createElement("figcaption");
+    cap.className = "lightbox-caption";
+    fig.appendChild(img); fig.appendChild(cap);
+    var prev = el("button", "lightbox-btn lightbox-prev", ARROW("M15 6l-6 6 6 6"));
+    var next = el("button", "lightbox-btn lightbox-next", ARROW("M9 6l6 6-6 6"));
+    var close = el("button", "lightbox-btn lightbox-close", ARROW("M6 6l12 12M18 6 6 18"));
+    prev.type = next.type = close.type = "button";
+    prev.setAttribute("aria-label", "Previous picture");
+    next.setAttribute("aria-label", "Next picture");
+    close.setAttribute("aria-label", "Close");
+    root.appendChild(fig); root.appendChild(prev); root.appendChild(next); root.appendChild(close);
+    document.body.appendChild(root);
+
+    var state = { pics: [], i: 0, caption: "", opener: null }, touchX = null;
+    function render() {
+      var n = state.pics.length;
+      img.src = state.pics[state.i];
+      img.alt = state.caption + (n > 1 ? ", picture " + (state.i + 1) + " of " + n : "");
+      cap.textContent = state.caption + (n > 1 ? "  (" + (state.i + 1) + " / " + n + ")" : "");
+      prev.hidden = next.hidden = n < 2;
+    }
+    function go(d) { state.i = (state.i + d + state.pics.length) % state.pics.length; render(); }
+    function hide() {
+      root.hidden = true;
+      document.documentElement.classList.remove("lightbox-open");
+      document.removeEventListener("keydown", onKey);
+      if (state.opener) state.opener.focus();
+    }
+    function onKey(e) {
+      if (e.key === "Escape") hide();
+      else if (e.key === "ArrowRight") go(1);
+      else if (e.key === "ArrowLeft") go(-1);
+      else if (e.key === "Tab") {
+        var f = [prev, next, close].filter(function (b) { return !b.hidden; });
+        var at = f.indexOf(document.activeElement);
+        e.preventDefault();
+        f[(at + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+      }
+    }
+    prev.addEventListener("click", function () { go(-1); });
+    next.addEventListener("click", function () { go(1); });
+    close.addEventListener("click", hide);
+    root.addEventListener("click", function (e) { if (e.target === root || e.target === fig) hide(); });
+    root.addEventListener("touchstart", function (e) { touchX = e.touches[0].clientX; }, { passive: true });
+    root.addEventListener("touchend", function (e) {
+      if (touchX === null || state.pics.length < 2) return;
+      var dx = e.changedTouches[0].clientX - touchX; touchX = null;
+      if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+    });
+    return {
+      show: function (pics, caption, opener) {
+        state = { pics: pics, i: 0, caption: caption, opener: opener };
+        render();
+        root.hidden = false;
+        document.documentElement.classList.add("lightbox-open");
+        document.addEventListener("keydown", onKey);
+        close.focus();
+      }
+    };
+  }
+
   function renderCertifications() {
     if (typeof CERTIFICATIONS === "undefined") return;
     renderEmptyCardSection(
@@ -355,6 +456,7 @@
         body.appendChild(el("h3", "", cert.title));
         body.appendChild(el("p", "", cert.issuer));
         card.appendChild(body);
+        addCardMedia(card, cert, cert.title + (cert.issuer ? " — " + cert.issuer : ""));
         return card;
       }
     );
@@ -366,10 +468,12 @@
       AWARDS, "awardsGrid",
       "[Information to be added] — No specific awards, honors, or scholarships could be verified from public sources at the time this site was built. Verified awards will be listed here once confirmed.",
       function (a) {
-        var card = el("div", "research-card");
+        var card = el("div", "research-card award-card");
         card.appendChild(el("h3", "", a.title));
-        card.appendChild(el("p", "", a.organization + " · " + a.year));
-        card.appendChild(el("p", "", a.description));
+        var meta = [a.organization, a.year].map(function (v) { return String(v == null ? "" : v).trim(); }).filter(Boolean).join(" · ");
+        if (meta) card.appendChild(el("p", "award-meta", meta));
+        if (a.description && String(a.description).trim()) card.appendChild(el("p", "", a.description));
+        addCardMedia(card, a, a.title + (meta ? " — " + meta : ""));
         return card;
       }
     );
