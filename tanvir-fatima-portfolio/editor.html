@@ -107,6 +107,15 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
 .gate-card p{color:var(--ink5);margin:0 0 18px}
 .gate-card .gate-err{color:var(--red);font-size:.9rem;min-height:1.4em;margin:10px 0 0}
 .gate-card .btn{width:100%;justify-content:center;margin-top:14px;padding:11px 14px;font-size:1rem}
+.thumbs{display:flex;flex-wrap:wrap;gap:10px}
+.thumb{position:relative;width:150px;display:flex;flex-direction:column;gap:6px;padding:6px;background:#fff;border:1px solid var(--border);border-radius:10px}
+.thumb img{display:block;width:100%;height:104px;object-fit:cover;border-radius:6px;background:var(--ivory2)}
+.thumb .row{gap:4px}
+.thumb-badge{position:absolute;top:10px;left:10px}
+.thumb-add{width:150px;min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:inherit;font-weight:600;color:var(--navy);background:var(--ivory);border:2px dashed var(--field);border-radius:10px;cursor:pointer}
+.thumb-add span:first-child{font-size:1.6rem;line-height:1;color:var(--gold6)}
+.thumb-add:hover{border-color:var(--gold);background:var(--ivory2)}
+.thumb-add:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 @media (max-width:860px){
   .layout{grid-template-columns:1fr;padding:14px 16px 90px;gap:14px}
   .tabs{position:sticky;top:0;flex-direction:row;overflow-x:auto;gap:4px;padding:8px 0;background:var(--ivory);z-index:10;margin:0 -16px;padding-left:16px;padding-right:16px}
@@ -300,7 +309,7 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
       b.type = 'button';
       if (t.id === current) b.setAttribute('aria-current', 'page');
       b.appendChild(h('span', null, t.label));
-      var dirty = t.files.some(function (k) { return changed.indexOf(k) >= 0; }) || (t.assets && Object.keys(assets).length > 0);
+      var dirty = t.files.some(function (k) { return changed.indexOf(k) >= 0; }) || (t.assets && Object.keys(assets).some(function (p) { return assets[p].kind !== 'gallery'; }));
       if (dirty) { var d = h('span', 'dot'); d.title = 'Unpublished changes'; d.setAttribute('aria-label', 'unpublished changes'); b.appendChild(d); }
       if (t.id === 'publish' && !connected) { var d2 = h('span', 'dot'); d2.style.background = '#b8b0a0'; d2.title = 'Not connected'; b.appendChild(d2); }
       b.addEventListener('click', function () { show(t.id); });
@@ -348,6 +357,7 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
   }
   var uid = 0;
   function field(obj, spec, onChange) {
+    if (spec.t === 'images') return imagesField(obj, spec, onChange);
     var t = spec.t || 'text';
     var wrap = h('div', 'field' + (spec.w === 'half' ? ' half' : '') + (t === 'bool' ? ' check' : ''));
     var id = 'f' + (++uid);
@@ -388,6 +398,89 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
     if (spec.h) { var hint = h('span', 'hint', spec.h); hint.id = id + 'h'; input.setAttribute('aria-describedby', hint.id); wrap.appendChild(hint); }
     return wrap;
   }
+  /* Pictures for awards & certifications: resized in the browser, uploaded on publish. */
+  function picLabel(n) { return n + (n === 1 ? ' picture' : ' pictures'); }
+  function slug(s) { return String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'picture'; }
+  function compressImage(file, cb) {
+    var src = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      var max = 1800, w = img.naturalWidth, hgt = img.naturalHeight, s = Math.min(1, max / Math.max(w, hgt));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(hgt * s));
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(src);
+      c.toBlob(function (blob) {
+        if (!blob) { cb(null); return; }
+        blob.arrayBuffer().then(function (buf) { cb({ b64: b64FromBytes(new Uint8Array(buf)), url: URL.createObjectURL(blob), size: blob.size }); }, function () { cb(null); });
+      }, 'image/jpeg', 0.85);
+    };
+    img.onerror = function () { URL.revokeObjectURL(src); cb(null); };
+    img.src = src;
+  }
+  function picInUse(path) {
+    return ['AWARDS', 'CERTIFICATIONS'].some(function (v) { return (data[v] || []).some(function (x) { return (x.images || []).indexOf(path) >= 0; }); });
+  }
+  function imagesField(obj, spec, onChange) {
+    var wrap = h('div', 'field');
+    wrap.appendChild(h('span', 'flabel', spec.l));
+    var grid = h('div', 'thumbs'); wrap.appendChild(grid);
+    if (spec.h) wrap.appendChild(h('span', 'hint', spec.h));
+    var picker = h('input'); picker.type = 'file'; picker.accept = 'image/jpeg,image/png,image/webp'; picker.multiple = true; picker.hidden = true;
+    picker.setAttribute('aria-label', spec.l);
+    wrap.appendChild(picker);
+    function list() { return Array.isArray(obj[spec.k]) ? obj[spec.k] : []; }
+    function changed() { if (onChange) onChange(); refreshChrome(); }
+    function draw() {
+      grid.innerHTML = '';
+      var all = list();
+      all.forEach(function (path, i) {
+        var t = h('div', 'thumb');
+        var img = h('img'); img.alt = 'Picture ' + (i + 1); img.src = assets[path] ? assets[path].url : path;
+        t.appendChild(img);
+        if (assets[path]) t.appendChild(h('span', 'pending thumb-badge', 'New'));
+        else if (i === 0 && all.length > 1) t.appendChild(h('span', 'pending thumb-badge', 'On card'));
+        var row = h('div', 'row');
+        if (i > 0) {
+          var first = h('button', 'btn ghost small', 'Show first'); first.type = 'button'; first.title = 'Show this picture on the card';
+          first.addEventListener('click', function () { var a = list(); a.unshift(a.splice(i, 1)[0]); draw(); changed(); });
+          row.appendChild(first);
+        }
+        var rm = h('button', 'btn danger small', 'Remove'); rm.type = 'button';
+        rm.addEventListener('click', function () { var a = list(); a.splice(i, 1); if (assets[path] && !picInUse(path)) delete assets[path]; draw(); changed(); });
+        row.appendChild(rm); t.appendChild(row); grid.appendChild(t);
+      });
+      var add = h('button', 'thumb-add'); add.type = 'button';
+      add.appendChild(h('span', null, '+'));
+      add.appendChild(h('span', null, all.length ? 'Add more' : 'Add picture'));
+      add.addEventListener('click', function () { picker.click(); });
+      grid.appendChild(add);
+    }
+    picker.addEventListener('change', function () {
+      var files = Array.prototype.slice.call(picker.files || []); picker.value = '';
+      if (!files.length) return;
+      var left = files.length, added = 0, stamp = Date.now().toString(36);
+      files.forEach(function (file, n) {
+        compressImage(file, function (res) {
+          if (!res) toast('“' + file.name + '” could not be read. Please use a JPG or PNG picture.', 'error');
+          else {
+            var path = 'assets/images/' + spec.dir + '/' + slug(obj.title || spec.dir) + '-' + stamp + n + '.jpg';
+            assets[path] = { kind: 'gallery', b64: res.b64, url: res.url, label: 'picture for ' + (obj.title || spec.dir) };
+            if (!Array.isArray(obj[spec.k])) obj[spec.k] = [];
+            obj[spec.k].push(path); added++;
+          }
+          if (--left === 0) {
+            draw(); changed();
+            if (added) toast(picLabel(added) + ' added. ' + (added === 1 ? 'It is' : 'They are') + ' uploaded when you publish.');
+          }
+        });
+      });
+    });
+    draw();
+    return wrap;
+  }
+
   function addFields(grid, obj, specs, onChange) { specs.forEach(function (s) { grid.appendChild(field(obj, s, onChange)); }); }
 
   var openItems = new WeakSet();
@@ -658,7 +751,7 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
     },
 
     awards: function () {
-      head('Awards', 'Awards, honours and scholarships. While this list is empty the site shows a short “information to be added” note.');
+      head('Awards', 'Awards, honours and scholarships, with optional pictures. While this list is empty the site shows a short “information to be added” note.');
       listEditor('AWARDS', {
         add: 'Add award', addTop: true,
         empty: 'No awards yet. Add one and it replaces the placeholder note on the site.',
@@ -666,20 +759,26 @@ details.adv>summary{cursor:pointer;font-weight:600;color:var(--navy)}
           { k: 'title', l: 'Award' },
           { k: 'organization', l: 'Awarded by', w: 'half' },
           { k: 'year', l: 'Year', w: 'half' },
-          { k: 'description', l: 'Description', t: 'textarea', r: 3, h: 'One or two sentences of context.' }
+          { k: 'description', l: 'Description', t: 'textarea', r: 3, h: 'One or two sentences of context.' },
+          { k: 'images', l: 'Pictures', t: 'images', dir: 'awards', h: 'Award certificate or ceremony photos. The first picture is shown on the card; visitors can click it to see them all.' }
         ],
-        title: function (a) { return a.title; }, meta: function (a) { return a.year; },
-        blank: function () { return { title: '', organization: '', year: String(new Date().getFullYear()), description: '' }; }
+        title: function (a) { return a.title; },
+        meta: function (a) { var n = (a.images || []).length; return [a.year, n ? picLabel(n) : ''].filter(Boolean).join(' · '); },
+        blank: function () { return { title: '', organization: '', year: String(new Date().getFullYear()), description: '', images: [] }; }
       });
     },
 
     certifications: function () {
-      head('Certifications', 'Shown as a grid, in this order.');
+      head('Certifications', 'Shown as a grid, in this order. Add a picture of a certificate and visitors can view it full size.');
       listEditor('CERTIFICATIONS', {
         add: 'Add certification',
-        fields: [{ k: 'title', l: 'Certification', w: 'half' }, { k: 'issuer', l: 'Issued by', w: 'half' }],
-        title: function (c) { return c.title; }, meta: function (c) { return c.issuer; },
-        blank: function () { return { title: '', issuer: '' }; }
+        fields: [
+          { k: 'title', l: 'Certification', w: 'half' }, { k: 'issuer', l: 'Issued by', w: 'half' },
+          { k: 'images', l: 'Certificate picture', t: 'images', dir: 'certifications', h: 'A photo or scan of the certificate. Visitors can click it to see it full size.' }
+        ],
+        title: function (c) { return c.title; },
+        meta: function (c) { var n = (c.images || []).length; return [c.issuer, n ? picLabel(n) : ''].filter(Boolean).join(' · '); },
+        blank: function () { return { title: '', issuer: '', images: [] }; }
       });
     },
 
